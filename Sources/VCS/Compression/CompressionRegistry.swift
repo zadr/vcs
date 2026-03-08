@@ -4,7 +4,7 @@ public class CompressionRegistry {
     private var strategies: [String: CompressionStrategy] = [:]
     private var extensionMap: [String: String] = [:]
     private var pathOverrides: [String: String] = [:]
-    public var defaultStrategy: String = "zlib"
+    public var defaultStrategy: String = "lzfse"
 
     public init() {
         register(ZlibCompression())
@@ -28,16 +28,16 @@ public class CompressionRegistry {
         extensionMap["mp3"] = "none"
         extensionMap["pdf"] = "none"
 
-        extensionMap["txt"] = "zlib"
-        extensionMap["md"] = "zlib"
-        extensionMap["swift"] = "zlib"
-        extensionMap["rs"] = "zlib"
-        extensionMap["js"] = "zlib"
-        extensionMap["ts"] = "zlib"
-        extensionMap["json"] = "zlib"
-        extensionMap["xml"] = "zlib"
-        extensionMap["html"] = "zlib"
-        extensionMap["css"] = "zlib"
+        extensionMap["txt"] = "lzfse"
+        extensionMap["md"] = "lzfse"
+        extensionMap["swift"] = "lzfse"
+        extensionMap["rs"] = "lzfse"
+        extensionMap["js"] = "lzfse"
+        extensionMap["ts"] = "lzfse"
+        extensionMap["json"] = "lzfse"
+        extensionMap["xml"] = "lzfse"
+        extensionMap["html"] = "lzfse"
+        extensionMap["css"] = "lzfse"
 
         extensionMap["log"] = "lz4"
     }
