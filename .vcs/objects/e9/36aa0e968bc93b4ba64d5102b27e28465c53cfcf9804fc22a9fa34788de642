@@ -1,0 +1,2 @@
+commit
+{"parent":"f61d6cb130dce3f8c0358844f9a2476d7cb533c56581ccc50189c8dcef2356ed","author":"z","timestamp":792270363.116362,"tree":"7b6cf64af226869bdaff4385fa160c60dda916bd7a1609f07fe9502fee99451a","message":"Implement JPEG header deduplication via content-addressable header objects"}

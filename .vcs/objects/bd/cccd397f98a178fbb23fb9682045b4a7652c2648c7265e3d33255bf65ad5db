@@ -1,0 +1,2 @@
+commit
+{"parent":"ed7a74b030430f653358ed9f64de1ee8563151c652dd048754fc44aaac3bb18d","timestamp":792268778.782266,"author":"z","message":"Add JPEG header-stripping compression based on Facebook's preview photo technique","tree":"69a187ed669097c05da318c2962c364653cf9d3587ccf7c543d76c38dc2907e5"}

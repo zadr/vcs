@@ -1,0 +1,2 @@
+tree
+[{"hash":"fbe2dbc4ca23c71e8cb968f8f64fe2d1fb539b9a7d8649f4bdb5da7db419af87","isDirectory":false,"name":".gitignore"},{"hash":"f3a6d19099164808f58a69abd53360e84b3f0517fc98411b1396eafd59057e83","isDirectory":false,"name":"Package.swift"},{"hash":"88cd704a0a5226c9f3a8b795cc3b838019502bdf0a0412af1308563d4f0be1be","isDirectory":false,"name":"README.md"},{"hash":"9e80a920145d2bdd5e25569d09a8cb5b2fcad938b40d3464314d95014f6a210b","isDirectory":true,"name":"Sources"},{"hash":"78f191f27545297f9aab598cbc9c00408fc432bf8afc4a6e20f9f78f977e0438","isDirectory":true,"name":"Tests"}]

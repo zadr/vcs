@@ -1,0 +1,2 @@
+commit
+{"message":"Make JPEG compression lossless by preserving custom quantization and Huffman tables","parent":"bdcccd397f98a178fbb23fb9682045b4a7652c2648c7265e3d33255bf65ad5db","author":"z","tree":"8afca0e58394d3c3bb45706c63ae5bedbbefe94de8b40c522225170bce114091","timestamp":792268904.245397}

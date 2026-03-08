@@ -1,0 +1,2 @@
+tree
+[{"hash":"c97f23dcb0f2e6b13fed600f7aa5ede7bf584c87104a7bee4395723ba31534a6","isDirectory":true,"name":"Compression"},{"hash":"98041704b52d899707d7139d36f8c4cb012cd9c76381f0d335c5f0b6124e0cb8","isDirectory":true,"name":"Core"},{"hash":"902a1a4d067c28283211bcde371fce3ebb707d2c8ee66aea4be3702d5c721bb1","isDirectory":false,"name":"VCS.swift"}]
