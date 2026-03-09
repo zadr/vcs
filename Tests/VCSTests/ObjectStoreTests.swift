@@ -103,34 +103,52 @@ final class ObjectStoreTests: TempDirectoryTestCase {
 
     func testWriteBlobJPEGCustomTables() throws {
         let jpegData = buildCustomQuantJPEG()
-        // writeBlob stores the header object at Hash.compute(headerObj), but
-        // compress embeds Hash.compute(tablesData). These differ, so readBlob
-        // will fail when decompress tries to load tables by hash.
-        // This documents a known bug: ObjectStore.writeBlob stores the tables header
-        // at the content hash of the header object, not at the tables data hash.
         let hash = try store.writeBlob(content: jpegData, path: "photo.jpg")
 
-        // Manually store the tables at the correct hash to enable readBlob
-        let jpegStrategy = registry.getStrategy(byName: "jpeg-header-strip") as! JPEGHeaderCompression
-        if let tablesData = try jpegStrategy.getTablesData(jpegData) {
-            let tablesHash = Hash.compute(tablesData)
-            var headerObj = Data()
-            headerObj.append("header\n".data(using: .utf8)!)
-            headerObj.append("jpeg-tables\n".data(using: .utf8)!)
-            headerObj.append(tablesData)
-            // Write at the correct hash path
-            let hex = tablesHash.hex
-            let prefix = String(hex.prefix(2))
-            let suffix = String(hex.dropFirst(2))
-            let objectsPath = tempDir.appendingPathComponent(".vcs/objects")
-            let dirPath = objectsPath.appendingPathComponent(prefix)
-            try FileManager.default.createDirectory(at: dirPath, withIntermediateDirectories: true)
-            try headerObj.write(to: dirPath.appendingPathComponent(suffix))
-        }
-
-        jpegStrategy.setObjectStore(store)
+        // readBlob should succeed without any manual setObjectStore call —
+        // Blob.decode wires up the object store automatically
         let blob = try store.readBlob(hash)
         XCTAssertEqual(blob.compressionStrategy, "jpeg-header-strip")
+        // Verify the decompressed content is a valid JPEG starting with SOI
+        XCTAssertGreaterThanOrEqual(blob.content.count, 2)
+        XCTAssertEqual(blob.content[0], 0xFF)
+        XCTAssertEqual(blob.content[1], 0xD8)
+    }
+
+    func testWriteBlobJPEGCustomTablesStoresTablesAtCorrectHash() throws {
+        let jpegData = buildCustomQuantJPEG()
+        _ = try store.writeBlob(content: jpegData, path: "photo.jpg")
+
+        // Verify the tables object is stored at Hash.compute(tablesData), not Hash.compute(headerObj)
+        let jpegStrategy = registry.getStrategy(byName: "jpeg-header-strip") as! JPEGHeaderCompression
+        let tablesData = try jpegStrategy.getTablesData(jpegData)!
+        let tablesHash = Hash.compute(tablesData)
+        XCTAssertTrue(store.exists(tablesHash), "Tables should be stored at the tablesData hash")
+
+        // Verify the stored header object is correctly formatted
+        let storedData = try store.read(tablesHash)
+        let lines = storedData.split(separator: 0x0A, maxSplits: 2, omittingEmptySubsequences: false)
+        XCTAssertEqual(String(data: Data(lines[0]), encoding: .utf8), "header")
+        XCTAssertEqual(String(data: Data(lines[1]), encoding: .utf8), "jpeg-tables")
+        XCTAssertEqual(Data(lines[2]), tablesData)
+    }
+
+    // MARK: - write(_:at:)
+
+    func testWriteAtHashAndRead() throws {
+        let data = Data("stored at specific hash".utf8)
+        let hash = Hash.compute(Data("different content".utf8))
+        try store.write(data, at: hash)
+
+        let readData = try store.read(hash)
+        XCTAssertEqual(readData, data)
+    }
+
+    func testWriteAtHashCreatesDirectoryStructure() throws {
+        let data = Data("test".utf8)
+        let hash = Hash.compute(data)
+        try store.write(data, at: hash)
+        XCTAssertTrue(store.exists(hash))
     }
 
     func testWriteBlobJPEGStandardTables() throws {

@@ -34,6 +34,15 @@ public class ObjectStore {
         return hash
     }
 
+    public func write(_ data: Data, at hash: Hash) throws {
+        let path = objectPath(for: hash)
+        try FileManager.default.createDirectory(
+            at: path.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: path)
+    }
+
     public func read(_ hash: Hash) throws -> Data {
         let path = objectPath(for: hash)
         return try Data(contentsOf: path)
@@ -57,7 +66,7 @@ public class ObjectStore {
                 headerObj.append("header\n".data(using: .utf8)!)
                 headerObj.append("jpeg-tables\n".data(using: .utf8)!)
                 headerObj.append(tablesData)
-                _ = try write(headerObj)
+                try write(headerObj, at: tablesHash)
             }
         }
 
