@@ -11,6 +11,7 @@ public class CompressionRegistry {
         register(LZ4Compression())
         register(NoCompression())
         register(JPEGHeaderCompression())
+        register(LZFSECompression())
 
         configureDefaults()
     }
