@@ -13,7 +13,7 @@ func printUsage() {
         vcs compression set <ext> <strategy>     Set compression for extension
         vcs compression override <path> <strategy>  Set compression for specific file
 
-    Available compression strategies: zlib, lz4, none, jpeg-header-strip
+    Available compression strategies: lzfse (default), zlib, lz4, none, jpeg-header-strip
     """)
 }
 
