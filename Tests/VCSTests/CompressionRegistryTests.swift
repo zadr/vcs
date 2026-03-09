@@ -27,8 +27,8 @@ final class CompressionRegistryTests: XCTestCase {
         XCTAssertNotNil(registry.getStrategy(byName: "jpeg-header-strip"))
     }
 
-    func testDefaultStrategyIsZlib() {
-        XCTAssertEqual(registry.defaultStrategy, "zlib")
+    func testDefaultStrategyIsLZFSE() {
+        XCTAssertEqual(registry.defaultStrategy, "lzfse")
     }
 
     // MARK: - getStrategy(byName:)
@@ -61,46 +61,46 @@ final class CompressionRegistryTests: XCTestCase {
         XCTAssertNil(registry.getStrategy(byName: ""))
     }
 
-    // MARK: - getStrategy(forPath:) — Text extensions → zlib
+    // MARK: - getStrategy(forPath:) — Text extensions → lzfse
 
     func testGetStrategyForPathTxt() {
-        XCTAssertEqual(registry.getStrategy(forPath: "file.txt").name, "zlib")
+        XCTAssertEqual(registry.getStrategy(forPath: "file.txt").name, "lzfse")
     }
 
     func testGetStrategyForPathMd() {
-        XCTAssertEqual(registry.getStrategy(forPath: "readme.md").name, "zlib")
+        XCTAssertEqual(registry.getStrategy(forPath: "readme.md").name, "lzfse")
     }
 
     func testGetStrategyForPathSwift() {
-        XCTAssertEqual(registry.getStrategy(forPath: "main.swift").name, "zlib")
+        XCTAssertEqual(registry.getStrategy(forPath: "main.swift").name, "lzfse")
     }
 
     func testGetStrategyForPathRs() {
-        XCTAssertEqual(registry.getStrategy(forPath: "main.rs").name, "zlib")
+        XCTAssertEqual(registry.getStrategy(forPath: "main.rs").name, "lzfse")
     }
 
     func testGetStrategyForPathJs() {
-        XCTAssertEqual(registry.getStrategy(forPath: "app.js").name, "zlib")
+        XCTAssertEqual(registry.getStrategy(forPath: "app.js").name, "lzfse")
     }
 
     func testGetStrategyForPathTs() {
-        XCTAssertEqual(registry.getStrategy(forPath: "app.ts").name, "zlib")
+        XCTAssertEqual(registry.getStrategy(forPath: "app.ts").name, "lzfse")
     }
 
     func testGetStrategyForPathJson() {
-        XCTAssertEqual(registry.getStrategy(forPath: "data.json").name, "zlib")
+        XCTAssertEqual(registry.getStrategy(forPath: "data.json").name, "lzfse")
     }
 
     func testGetStrategyForPathXml() {
-        XCTAssertEqual(registry.getStrategy(forPath: "data.xml").name, "zlib")
+        XCTAssertEqual(registry.getStrategy(forPath: "data.xml").name, "lzfse")
     }
 
     func testGetStrategyForPathHtml() {
-        XCTAssertEqual(registry.getStrategy(forPath: "index.html").name, "zlib")
+        XCTAssertEqual(registry.getStrategy(forPath: "index.html").name, "lzfse")
     }
 
     func testGetStrategyForPathCss() {
-        XCTAssertEqual(registry.getStrategy(forPath: "style.css").name, "zlib")
+        XCTAssertEqual(registry.getStrategy(forPath: "style.css").name, "lzfse")
     }
 
     // MARK: - getStrategy(forPath:) — Log → lz4
@@ -156,15 +156,15 @@ final class CompressionRegistryTests: XCTestCase {
     // MARK: - getStrategy(forPath:) — Unknown/no extension → default
 
     func testGetStrategyForPathUnknownExt() {
-        XCTAssertEqual(registry.getStrategy(forPath: "file.xyz").name, "zlib")
+        XCTAssertEqual(registry.getStrategy(forPath: "file.xyz").name, "lzfse")
     }
 
     func testGetStrategyForPathNoExtension() {
-        XCTAssertEqual(registry.getStrategy(forPath: "Makefile").name, "zlib")
+        XCTAssertEqual(registry.getStrategy(forPath: "Makefile").name, "lzfse")
     }
 
     func testGetStrategyForPathEmpty() {
-        XCTAssertEqual(registry.getStrategy(forPath: "").name, "zlib")
+        XCTAssertEqual(registry.getStrategy(forPath: "").name, "lzfse")
     }
 
     // MARK: - setCompressionForExtension

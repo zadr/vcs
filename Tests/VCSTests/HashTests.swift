@@ -60,6 +60,19 @@ final class HashTests: XCTestCase {
         XCTAssertNil(hash)
     }
 
+    func testInitHexWithOddLengthReturnsNil() {
+        // Regression test for issue #6: odd-length hex strings should return nil, not crash
+        XCTAssertNil(Hash(hex: "a"))
+        XCTAssertNil(Hash(hex: "abc"))
+        XCTAssertNil(Hash(hex: "abcde"))
+    }
+
+    func testInitHexWithValidEvenLengthSucceeds() {
+        // Short even-length strings should succeed (complement to odd-length regression test)
+        XCTAssertNotNil(Hash(hex: "ab"))
+        XCTAssertNotNil(Hash(hex: "abcd"))
+    }
+
     // MARK: - hex property
 
     func testHexRoundTrip() {

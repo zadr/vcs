@@ -9,6 +9,7 @@ public struct Hash: Hashable, CustomStringConvertible {
     }
 
     public init?(hex: String) {
+        guard hex.count % 2 == 0 else { return nil }
         var data = Data(capacity: hex.count / 2)
         var index = hex.startIndex
 
