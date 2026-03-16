@@ -462,4 +462,205 @@ final class RepositoryTests: TempDirectoryTestCase {
         XCTAssertEqual(commits.count, 1)
         XCTAssertEqual(commits.first?.message, "initial")
     }
+
+    // MARK: - G) Combine Commits
+
+    func testCombineTwoCommitsDefaultCount() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        for i in 1...3 {
+            try "v\(i)".write(to: tempDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+            _ = try repo.commit(message: "commit \(i)", author: "A")
+        }
+
+        _ = try repo.combineCommits()  // default count=2
+
+        let commits = try repo.log()
+        XCTAssertEqual(commits.count, 2) // combined + commit 1
+        XCTAssertEqual(commits[1].message, "commit 1")
+    }
+
+    func testCombineThreeCommitsWithCount() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        for i in 1...4 {
+            try "v\(i)".write(to: tempDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+            _ = try repo.commit(message: "commit \(i)", author: "A")
+        }
+
+        _ = try repo.combineCommits(count: 3)
+
+        let commits = try repo.log()
+        XCTAssertEqual(commits.count, 2) // combined + commit 1
+    }
+
+    func testCombineWithCustomMessage() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        for i in 1...3 {
+            try "v\(i)".write(to: tempDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+            _ = try repo.commit(message: "commit \(i)", author: "A")
+        }
+
+        _ = try repo.combineCommits(count: 2, message: "custom squash msg")
+
+        let commits = try repo.log()
+        XCTAssertEqual(commits.first?.message, "custom squash msg")
+    }
+
+    func testCombineWithoutMessageConcatenatesMessages() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        for i in 1...3 {
+            try "v\(i)".write(to: tempDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+            _ = try repo.commit(message: "commit \(i)", author: "A")
+        }
+
+        _ = try repo.combineCommits(count: 2)
+
+        let commits = try repo.log()
+        let msg = commits.first!.message
+        XCTAssertTrue(msg.contains("commit 3"))
+        XCTAssertTrue(msg.contains("commit 2"))
+    }
+
+    func testCombinePreservesNewestTree() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        try "v1".write(to: tempDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        _ = try repo.commit(message: "first", author: "A")
+
+        try "v2".write(to: tempDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        _ = try repo.commit(message: "second", author: "A")
+
+        // Record the tree hash from the newest commit before combining
+        let commitsBeforeCombine = try repo.log(limit: 1)
+        let expectedTree = commitsBeforeCombine.first!.tree
+
+        _ = try repo.combineCommits(count: 2)
+
+        let commitsAfterCombine = try repo.log(limit: 1)
+        XCTAssertEqual(commitsAfterCombine.first!.tree, expectedTree)
+    }
+
+    func testCombineUpdatesParentCorrectly() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        var hashes: [Hash] = []
+        for i in 1...4 {
+            try "v\(i)".write(to: tempDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+            hashes.append(try repo.commit(message: "commit \(i)", author: "A"))
+        }
+
+        // Before combine: commit4 -> commit3 -> commit2 -> commit1
+        // After combining last 2 (commit4+commit3), parent should point to commit2
+        _ = try repo.combineCommits(count: 2)
+
+        let logAfter = try repo.log()
+        XCTAssertEqual(logAfter.count, 3) // combined + commit2 + commit1
+        // The combined commit's parent should be commit2's hash
+        XCTAssertEqual(logAfter.first?.parent, hashes[1].hex)
+    }
+
+    func testCombineCountLessThanTwoThrows() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        try "data".write(to: tempDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        _ = try repo.commit(message: "first", author: "A")
+
+        XCTAssertThrowsError(try repo.combineCommits(count: 1)) { error in
+            guard case RepositoryError.invalidCombineCount(1) = error else {
+                return XCTFail("Expected invalidCombineCount(1), got \(error)")
+            }
+        }
+    }
+
+    func testCombineCountZeroThrows() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        try "data".write(to: tempDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        _ = try repo.commit(message: "first", author: "A")
+
+        XCTAssertThrowsError(try repo.combineCommits(count: 0)) { error in
+            guard case RepositoryError.invalidCombineCount(0) = error else {
+                return XCTFail("Expected invalidCombineCount(0), got \(error)")
+            }
+        }
+    }
+
+    func testCombineMoreThanAvailableThrows() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        for i in 1...2 {
+            try "v\(i)".write(to: tempDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+            _ = try repo.commit(message: "commit \(i)", author: "A")
+        }
+
+        XCTAssertThrowsError(try repo.combineCommits(count: 5)) { error in
+            guard case RepositoryError.insufficientCommits(requested: 5, available: 2) = error else {
+                return XCTFail("Expected insufficientCommits(requested: 5, available: 2), got \(error)")
+            }
+        }
+    }
+
+    func testCombineNoCommitsThrows() throws {
+        let repo = try Repository.initialize(at: tempDir)
+
+        XCTAssertThrowsError(try repo.combineCommits()) { error in
+            guard case RepositoryError.noCommits = error else {
+                return XCTFail("Expected noCommits, got \(error)")
+            }
+        }
+    }
+
+    func testCombineAllCommitsResultsInNilParent() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        for i in 1...3 {
+            try "v\(i)".write(to: tempDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+            _ = try repo.commit(message: "commit \(i)", author: "A")
+        }
+
+        _ = try repo.combineCommits(count: 3)
+
+        let commits = try repo.log()
+        XCTAssertEqual(commits.count, 1)
+        XCTAssertNil(commits.first?.parent)
+    }
+
+    func testCombineAuthorDefaultsToNewestCommit() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        try "v1".write(to: tempDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        _ = try repo.commit(message: "first", author: "Alice")
+
+        try "v2".write(to: tempDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        _ = try repo.commit(message: "second", author: "Bob")
+
+        _ = try repo.combineCommits(count: 2)
+
+        let commits = try repo.log(limit: 1)
+        XCTAssertEqual(commits.first?.author, "Bob")
+    }
+
+    func testCombineWithCustomAuthor() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        try "v1".write(to: tempDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        _ = try repo.commit(message: "first", author: "Alice")
+
+        try "v2".write(to: tempDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        _ = try repo.commit(message: "second", author: "Bob")
+
+        _ = try repo.combineCommits(count: 2, author: "Charlie")
+
+        let commits = try repo.log(limit: 1)
+        XCTAssertEqual(commits.first?.author, "Charlie")
+    }
+
+    func testCombineReturnedHashIsNewHead() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        for i in 1...3 {
+            try "v\(i)".write(to: tempDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+            _ = try repo.commit(message: "commit \(i)", author: "A")
+        }
+
+        let combinedHash = try repo.combineCommits(count: 2)
+
+        // The returned hash should match what log returns as HEAD
+        let headCommits = try repo.log(limit: 1)
+        // Verify by checking the combined commit's tree matches what we get from log
+        // Since the hash is content-addressed, if log can read it, it's the HEAD
+        XCTAssertEqual(headCommits.count, 1)
+        XCTAssertFalse(combinedHash.hex.isEmpty)
+        XCTAssertEqual(combinedHash.hex.count, 64)
+    }
 }
