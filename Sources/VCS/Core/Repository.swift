@@ -1,5 +1,22 @@
 import Foundation
 
+public enum RepositoryError: Error, LocalizedError {
+    case noCommits
+    case invalidCombineCount(Int)
+    case insufficientCommits(requested: Int, available: Int)
+
+    public var errorDescription: String? {
+        switch self {
+        case .noCommits:
+            return "No commits in repository"
+        case .invalidCombineCount(let count):
+            return "Combine count must be at least 2 (got \(count))"
+        case .insufficientCommits(let requested, let available):
+            return "Not enough commits to combine (requested \(requested), found \(available))"
+        }
+    }
+}
+
 public class Repository {
     private let rootPath: URL
     private let vcsPath: URL
@@ -103,6 +120,56 @@ public class Repository {
         try updateHead(to: commitHash)
 
         return commitHash
+    }
+
+    public func combineCommits(count: Int = 2, message: String? = nil, author: String? = nil) throws -> Hash {
+        guard count >= 2 else {
+            throw RepositoryError.invalidCombineCount(count)
+        }
+
+        guard let headHash = try getCurrentCommit() else {
+            throw RepositoryError.noCommits
+        }
+
+        // Walk back and collect `count` commits (newest → oldest)
+        var commits: [(hash: Hash, commit: Commit)] = []
+        var currentHash = headHash
+
+        for _ in 0..<count {
+            let commit = try objectStore.readCommit(currentHash)
+            commits.append((hash: currentHash, commit: commit))
+
+            if let parentHex = commit.parent, let parentHash = Hash(hex: parentHex) {
+                currentHash = parentHash
+            } else if commits.count < count {
+                throw RepositoryError.insufficientCommits(requested: count, available: commits.count)
+            }
+        }
+
+        let newestCommit = commits.first!.commit
+        let oldestCommit = commits.last!.commit
+
+        let combinedMessage: String
+        if let message = message {
+            combinedMessage = message
+        } else {
+            combinedMessage = commits.map { $0.commit.message }.joined(separator: "\n\n")
+        }
+
+        let combinedAuthor = author ?? newestCommit.author
+
+        let combined = Commit(
+            tree: newestCommit.tree,
+            parent: oldestCommit.parent,
+            author: combinedAuthor,
+            timestamp: Date(),
+            message: combinedMessage
+        )
+
+        let combinedHash = try objectStore.writeCommit(combined)
+        try updateHead(to: combinedHash)
+
+        return combinedHash
     }
 
     private func getCurrentCommit() throws -> Hash? {

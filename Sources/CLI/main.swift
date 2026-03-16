@@ -8,6 +8,7 @@ func printUsage() {
     Usage:
         vcs init                     Initialize a new repository
         vcs commit <message>         Create a new commit
+        vcs commit combine [--count N] [--message "msg"]   Combine last N commits into one
         vcs log [limit]              Show commit history
         vcs checkout <hash>          Checkout a specific commit
         vcs compression set <ext> <strategy>     Set compression for extension
@@ -36,14 +37,46 @@ func main() {
 
         case "commit":
             guard args.count >= 3 else {
-                print("Error: commit message required")
+                print("Error: commit message or subcommand required")
                 exit(1)
             }
-            let message = args[2..<args.count].joined(separator: " ")
-            let repo = try Repository(path: currentDir)
-            let author = ProcessInfo.processInfo.environment["USER"] ?? "unknown"
-            let hash = try repo.commit(message: message, author: author)
-            print("Created commit: \(hash.hex)")
+
+            if args[2] == "combine" {
+                var count = 2
+                var message: String? = nil
+                var i = 3
+                while i < args.count {
+                    switch args[i] {
+                    case "--count":
+                        guard i + 1 < args.count, let n = Int(args[i + 1]) else {
+                            print("Error: --count requires a number")
+                            exit(1)
+                        }
+                        count = n
+                        i += 2
+                    case "--message":
+                        guard i + 1 < args.count else {
+                            print("Error: --message requires a value")
+                            exit(1)
+                        }
+                        message = args[i + 1]
+                        i += 2
+                    default:
+                        print("Error: unknown option '\(args[i])'")
+                        exit(1)
+                    }
+                }
+
+                let repo = try Repository(path: currentDir)
+                let hash = try repo.combineCommits(count: count, message: message)
+                print("Combined \(count) commits into: \(hash.hex)")
+            } else {
+                let message = args[2..<args.count].joined(separator: " ")
+                let repo = try Repository(path: currentDir)
+                let author = ProcessInfo.processInfo.environment["USER"] ?? "unknown"
+                let hash = try repo.commit(message: message, author: author)
+                print("Created commit: \(hash.hex)")
+            }
 
         case "log":
             let limit = args.count >= 3 ? Int(args[2]) ?? 10 : 10
