@@ -663,4 +663,130 @@ final class RepositoryTests: TempDirectoryTestCase {
         XCTAssertFalse(combinedHash.hex.isEmpty)
         XCTAssertEqual(combinedHash.hex.count, 64)
     }
+
+    // MARK: - H) Show Operations
+
+    func testShowSingleFileAtCommit() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        try "hello world".write(to: tempDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        let commitHash = try repo.commit(message: "add file", author: "A")
+
+        let results = try repo.show(commitHash: commitHash, files: ["file.txt"])
+
+        XCTAssertNotNil(results["file.txt"])
+        XCTAssertEqual(results["file.txt"], "hello world".data(using: .utf8))
+    }
+
+    func testShowMultipleFilesAtCommit() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        try "content a".write(to: tempDir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        try "content b".write(to: tempDir.appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
+        let commitHash = try repo.commit(message: "add files", author: "A")
+
+        let results = try repo.show(commitHash: commitHash, files: ["a.txt", "b.txt"])
+
+        XCTAssertEqual(results["a.txt"], "content a".data(using: .utf8))
+        XCTAssertEqual(results["b.txt"], "content b".data(using: .utf8))
+    }
+
+    func testShowFileInSubdirectory() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        let subdir = tempDir.appendingPathComponent("dir")
+        try FileManager.default.createDirectory(at: subdir, withIntermediateDirectories: true)
+        try "nested content".write(to: subdir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        let commitHash = try repo.commit(message: "add nested", author: "A")
+
+        let results = try repo.show(commitHash: commitHash, files: ["dir/file.txt"])
+
+        XCTAssertNotNil(results["dir/file.txt"])
+        XCTAssertEqual(results["dir/file.txt"], "nested content".data(using: .utf8))
+    }
+
+    func testShowFileNotFoundReturnsNilInDictionary() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        try "data".write(to: tempDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        let commitHash = try repo.commit(message: "commit", author: "A")
+
+        let results = try repo.show(commitHash: commitHash, files: ["nonexistent.txt"])
+
+        XCTAssertNil(results["nonexistent.txt"])
+        XCTAssertTrue(results.isEmpty)
+    }
+
+    func testShowMixOfFoundAndNotFound() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        try "existing content".write(to: tempDir.appendingPathComponent("existing.txt"), atomically: true, encoding: .utf8)
+        let commitHash = try repo.commit(message: "commit", author: "A")
+
+        let results = try repo.show(commitHash: commitHash, files: ["existing.txt", "missing.txt"])
+
+        XCTAssertNotNil(results["existing.txt"])
+        XCTAssertNil(results["missing.txt"])
+        XCTAssertEqual(results.count, 1)
+    }
+
+    func testShowAtOlderCommit() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        try "v1".write(to: tempDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        let firstHash = try repo.commit(message: "first", author: "A")
+
+        try "v2".write(to: tempDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        _ = try repo.commit(message: "second", author: "A")
+
+        let results = try repo.show(commitHash: firstHash, files: ["file.txt"])
+
+        XCTAssertEqual(results["file.txt"], "v1".data(using: .utf8))
+    }
+
+    func testShowEmptyFilesListReturnsEmptyDictionary() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        try "data".write(to: tempDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        let commitHash = try repo.commit(message: "commit", author: "A")
+
+        let results = try repo.show(commitHash: commitHash, files: [])
+
+        XCTAssertTrue(results.isEmpty)
+    }
+
+    func testShowInvalidCommitHashThrows() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        let fakeHash = Hash(hex: String(repeating: "0", count: 64))!
+
+        XCTAssertThrowsError(try repo.show(commitHash: fakeHash, files: ["file.txt"]))
+    }
+
+    func testShowDeeplyNestedFile() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        let deep = tempDir.appendingPathComponent("a/b/c")
+        try FileManager.default.createDirectory(at: deep, withIntermediateDirectories: true)
+        try "deep value".write(to: deep.appendingPathComponent("leaf.txt"), atomically: true, encoding: .utf8)
+        let commitHash = try repo.commit(message: "deep nesting", author: "A")
+
+        let results = try repo.show(commitHash: commitHash, files: ["a/b/c/leaf.txt"])
+
+        XCTAssertEqual(results["a/b/c/leaf.txt"], "deep value".data(using: .utf8))
+    }
+
+    func testShowBinaryContent() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        let binaryData = Data([0x00, 0x01, 0xFF, 0xFE, 0x80, 0x7F])
+        try binaryData.write(to: tempDir.appendingPathComponent("binary.bin"))
+        let commitHash = try repo.commit(message: "add binary", author: "A")
+
+        let results = try repo.show(commitHash: commitHash, files: ["binary.bin"])
+
+        XCTAssertEqual(results["binary.bin"], binaryData)
+    }
+
+    func testShowDirectoryPathReturnsNil() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        let subdir = tempDir.appendingPathComponent("mydir")
+        try FileManager.default.createDirectory(at: subdir, withIntermediateDirectories: true)
+        try "inside".write(to: subdir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        let commitHash = try repo.commit(message: "with dir", author: "A")
+
+        let results = try repo.show(commitHash: commitHash, files: ["mydir"])
+
+        XCTAssertNil(results["mydir"])
+    }
 }
