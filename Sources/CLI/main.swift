@@ -11,6 +11,7 @@ func printUsage() {
         vcs commit combine [--count N] [--message "msg"]   Combine last N commits into one
         vcs log [limit]              Show commit history
         vcs checkout <hash>          Checkout a specific commit
+        vcs show <sha> --file <path> [--file ...]   Show file contents at a commit
         vcs compression set <ext> <strategy>     Set compression for extension
         vcs compression override <path> <strategy>  Set compression for specific file
 
@@ -102,6 +103,53 @@ func main() {
             let repo = try Repository(path: currentDir)
             try repo.checkout(hash)
             print("Checked out commit: \(hash.hex)")
+
+        case "show":
+            guard args.count >= 5 else {
+                print("Error: usage: vcs show <sha> --file <path> [--file <path> ...]")
+                exit(1)
+            }
+            guard let commitHash = Hash(hex: args[2]) else {
+                print("Error: invalid commit hash")
+                exit(1)
+            }
+            var files: [String] = []
+            var i = 3
+            while i < args.count {
+                switch args[i] {
+                case "--file":
+                    guard i + 1 < args.count else {
+                        print("Error: --file requires a path")
+                        exit(1)
+                    }
+                    files.append(args[i + 1])
+                    i += 2
+                default:
+                    print("Error: unknown option '\(args[i])'")
+                    exit(1)
+                }
+            }
+            guard !files.isEmpty else {
+                print("Error: at least one --file required")
+                exit(1)
+            }
+
+            let repo = try Repository(path: currentDir)
+            let results = try repo.show(commitHash: commitHash, files: files)
+
+            for file in files {
+                if let data = results[file] {
+                    print("=== \(file) ===")
+                    if let text = String(data: data, encoding: .utf8) {
+                        print(text)
+                    } else {
+                        print("(binary data, \(data.count) bytes)")
+                    }
+                } else {
+                    print("=== \(file) ===")
+                    print("(not found at this commit)")
+                }
+            }
 
         case "compression":
             guard args.count >= 4 else {

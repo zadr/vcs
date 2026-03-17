@@ -230,6 +230,45 @@ public class Repository {
         }
     }
 
+    private func resolveBlob(at path: String, in treeHash: Hash) throws -> Data? {
+        let components = path.split(separator: "/").map(String.init)
+        guard !components.isEmpty else { return nil }
+
+        let tree = try objectStore.readTree(treeHash)
+
+        if components.count == 1 {
+            guard let entry = tree.entries.first(where: { $0.name == components[0] && !$0.isDirectory }),
+                  let entryHash = Hash(hex: entry.hash) else {
+                return nil
+            }
+            let blob = try objectStore.readBlob(entryHash)
+            return blob.content
+        } else {
+            let dirName = components[0]
+            guard let entry = tree.entries.first(where: { $0.name == dirName && $0.isDirectory }),
+                  let entryHash = Hash(hex: entry.hash) else {
+                return nil
+            }
+            let remainingPath = components.dropFirst().joined(separator: "/")
+            return try resolveBlob(at: remainingPath, in: entryHash)
+        }
+    }
+
+    public func show(commitHash: Hash, files: [String]) throws -> [String: Data] {
+        let commit = try objectStore.readCommit(commitHash)
+        guard let treeHash = Hash(hex: commit.tree) else {
+            return [:]
+        }
+
+        var results: [String: Data] = [:]
+        for file in files {
+            if let data = try resolveBlob(at: file, in: treeHash) {
+                results[file] = data
+            }
+        }
+        return results
+    }
+
     public func log(limit: Int = 10) throws -> [Commit] {
         guard var currentHash = try getCurrentCommit() else {
             return []
