@@ -12,14 +12,14 @@ let package = Package(
             targets: ["VCS"]),
         .executable(
             name: "vcs-cli",
-            targets: ["CLI"])
+            targets: ["VCSCLI"])
     ],
     targets: [
         .target(
             name: "VCS",
             dependencies: []),
         .executableTarget(
-            name: "CLI",
+            name: "VCSCLI",
             dependencies: ["VCS"]),
         .testTarget(
             name: "VCSTests",
