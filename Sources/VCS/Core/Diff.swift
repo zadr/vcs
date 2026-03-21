@@ -20,7 +20,7 @@ public struct DiffResult {
     public let files: [(path: String, diff: FileDiff)]
 }
 
-/// Computes a line-based diff between two strings using the Myers diff algorithm.
+/// Computes a line-based diff between two strings using LCS (Longest Common Subsequence) dynamic programming.
 /// When `ignoreWhitespace` is true, lines that differ only in whitespace are treated as equal.
 public func computeLineDiff(old: String, new: String, ignoreWhitespace: Bool = false) -> [DiffLine] {
     let oldLines = old.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)

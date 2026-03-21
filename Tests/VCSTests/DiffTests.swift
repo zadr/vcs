@@ -179,6 +179,28 @@ final class DiffLineTests: XCTestCase {
         XCTAssertEqual(removals.count, 3)
         XCTAssertEqual(additions.count, 3)
     }
+
+    func testDiffWithTrailingNewline() {
+        let result = computeLineDiff(old: "line1\nline2\n", new: "line1\nchanged\n")
+        XCTAssertTrue(result.contains(.context("line1")))
+        XCTAssertTrue(result.contains(.removed("line2")))
+        XCTAssertTrue(result.contains(.added("changed")))
+        // Trailing newline produces an empty line that should be context in both
+        XCTAssertTrue(result.contains(.context("")))
+    }
+
+    func testDiffReversedProducesOppositeChanges() {
+        let forward = computeLineDiff(old: "a\nb", new: "a\nc")
+        let reverse = computeLineDiff(old: "a\nc", new: "a\nb")
+
+        // Forward: remove "b", add "c"
+        XCTAssertTrue(forward.contains(.removed("b")))
+        XCTAssertTrue(forward.contains(.added("c")))
+
+        // Reverse: remove "c", add "b"
+        XCTAssertTrue(reverse.contains(.removed("c")))
+        XCTAssertTrue(reverse.contains(.added("b")))
+    }
 }
 
 // MARK: - Repository Diff Integration Tests
@@ -431,5 +453,59 @@ final class RepositoryDiffTests: TempDirectoryTestCase {
         let result = try repo.diff(from: hash1, to: hash2)
         XCTAssertEqual(result.files.count, 1)
         XCTAssertEqual(result.files[0].path, "a/b/c/leaf.txt")
+    }
+
+    // MARK: - Reverse Diff
+
+    func testDiffReversedSwapsAddedAndRemoved() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        try "original".write(to: tempDir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        let hash1 = try repo.commit(message: "v1", author: "A")
+
+        try FileManager.default.removeItem(at: tempDir.appendingPathComponent("a.txt"))
+        try "brand new".write(to: tempDir.appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
+        let hash2 = try repo.commit(message: "v2", author: "A")
+
+        // Forward: a.txt removed, b.txt added
+        let forward = try repo.diff(from: hash1, to: hash2)
+        XCTAssertEqual(forward.files.count, 2)
+        let forwardA = forward.files.first { $0.path == "a.txt" }
+        let forwardB = forward.files.first { $0.path == "b.txt" }
+        guard case .removed = forwardA?.diff else { return XCTFail("Expected a.txt removed") }
+        guard case .added = forwardB?.diff else { return XCTFail("Expected b.txt added") }
+
+        // Reverse: a.txt added, b.txt removed
+        let reverse = try repo.diff(from: hash2, to: hash1)
+        XCTAssertEqual(reverse.files.count, 2)
+        let reverseA = reverse.files.first { $0.path == "a.txt" }
+        let reverseB = reverse.files.first { $0.path == "b.txt" }
+        guard case .added = reverseA?.diff else { return XCTFail("Expected a.txt added in reverse") }
+        guard case .removed = reverseB?.diff else { return XCTFail("Expected b.txt removed in reverse") }
+    }
+
+    // MARK: - Mixed Text and Binary
+
+    func testDiffMixedTextAndBinaryFiles() throws {
+        let repo = try Repository.initialize(at: tempDir)
+        try "text v1".write(to: tempDir.appendingPathComponent("readme.txt"), atomically: true, encoding: .utf8)
+        try Data([0x00, 0xFF, 0x80]).write(to: tempDir.appendingPathComponent("image.bin"))
+        let hash1 = try repo.commit(message: "v1", author: "A")
+
+        try "text v2".write(to: tempDir.appendingPathComponent("readme.txt"), atomically: true, encoding: .utf8)
+        try Data([0x00, 0xFF, 0x80, 0x01]).write(to: tempDir.appendingPathComponent("image.bin"))
+        let hash2 = try repo.commit(message: "v2", author: "A")
+
+        let result = try repo.diff(from: hash1, to: hash2)
+        XCTAssertEqual(result.files.count, 2)
+
+        let textDiff = result.files.first { $0.path == "readme.txt" }
+        let binaryDiff = result.files.first { $0.path == "image.bin" }
+
+        guard case .modified = textDiff?.diff else { return XCTFail("Expected text modified") }
+        guard case .binary(let oldSize, let newSize) = binaryDiff?.diff else {
+            return XCTFail("Expected binary diff")
+        }
+        XCTAssertEqual(oldSize, 3)
+        XCTAssertEqual(newSize, 4)
     }
 }

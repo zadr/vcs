@@ -191,29 +191,7 @@ func main() {
                     print("--- a/\(path)")
                     print("+++ b/\(path)")
                     switch fileDiff {
-                    case .added(let lines):
-                        for line in lines {
-                            switch line {
-                            case .added(let text):
-                                print("+\(text)")
-                            case .removed(let text):
-                                print("-\(text)")
-                            case .context(let text):
-                                print(" \(text)")
-                            }
-                        }
-                    case .removed(let lines):
-                        for line in lines {
-                            switch line {
-                            case .added(let text):
-                                print("+\(text)")
-                            case .removed(let text):
-                                print("-\(text)")
-                            case .context(let text):
-                                print(" \(text)")
-                            }
-                        }
-                    case .modified(let lines):
+                    case .added(let lines), .removed(let lines), .modified(let lines):
                         for line in lines {
                             switch line {
                             case .added(let text):
