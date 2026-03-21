@@ -12,6 +12,7 @@ func printUsage() {
         vcs log [limit]              Show commit history
         vcs checkout <hash>          Checkout a specific commit
         vcs show <sha> --file <path> [--file ...]   Show file contents at a commit
+        vcs diff <from-sha> <to-sha> [--ignore-whitespace]   Show line-based diff between commits
         vcs compression set <ext> <strategy>     Set compression for extension
         vcs compression override <path> <strategy>  Set compression for specific file
 
@@ -148,6 +149,84 @@ func main() {
                 } else {
                     print("=== \(file) ===")
                     print("(not found at this commit)")
+                }
+            }
+
+        case "diff":
+            guard args.count >= 4 else {
+                print("Error: usage: vcs diff <from-sha> <to-sha> [--ignore-whitespace]")
+                exit(1)
+            }
+            guard let fromHash = Hash(hex: args[2]) else {
+                print("Error: invalid from commit hash")
+                exit(1)
+            }
+            guard let toHash = Hash(hex: args[3]) else {
+                print("Error: invalid to commit hash")
+                exit(1)
+            }
+
+            var ignoreWhitespace = false
+            if args.count >= 5 {
+                var i = 4
+                while i < args.count {
+                    switch args[i] {
+                    case "--ignore-whitespace":
+                        ignoreWhitespace = true
+                        i += 1
+                    default:
+                        print("Error: unknown option '\(args[i])'")
+                        exit(1)
+                    }
+                }
+            }
+
+            let repo = try Repository(path: currentDir)
+            let result = try repo.diff(from: fromHash, to: toHash, ignoreWhitespace: ignoreWhitespace)
+
+            if result.files.isEmpty {
+                print("No differences found.")
+            } else {
+                for (path, fileDiff) in result.files {
+                    print("--- a/\(path)")
+                    print("+++ b/\(path)")
+                    switch fileDiff {
+                    case .added(let lines):
+                        for line in lines {
+                            switch line {
+                            case .added(let text):
+                                print("+\(text)")
+                            case .removed(let text):
+                                print("-\(text)")
+                            case .context(let text):
+                                print(" \(text)")
+                            }
+                        }
+                    case .removed(let lines):
+                        for line in lines {
+                            switch line {
+                            case .added(let text):
+                                print("+\(text)")
+                            case .removed(let text):
+                                print("-\(text)")
+                            case .context(let text):
+                                print(" \(text)")
+                            }
+                        }
+                    case .modified(let lines):
+                        for line in lines {
+                            switch line {
+                            case .added(let text):
+                                print("+\(text)")
+                            case .removed(let text):
+                                print("-\(text)")
+                            case .context(let text):
+                                print(" \(text)")
+                            }
+                        }
+                    case .binary(let oldSize, let newSize):
+                        print("Binary file changed (\(oldSize) -> \(newSize) bytes)")
+                    }
                 }
             }
 
