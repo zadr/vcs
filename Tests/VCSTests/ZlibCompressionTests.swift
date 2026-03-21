@@ -87,18 +87,17 @@ final class ZlibCompressionTests: TempDirectoryTestCase {
         XCTAssertEqual(result, data)
     }
 
-    // MARK: - Decompression buffer limitation
+    // MARK: - Decompression buffer growth
 
-    func testLargeCompressibleDataDecompressBufferLimit() throws {
+    func testLargeCompressibleDataDecompressBufferGrowth() throws {
         // Highly compressible data: compressed * 10 < original size
-        // Documents that the fixed 10x buffer can cause truncated decompression
-        let data = Data(repeating: 0x00, count: 10000)
+        // Verifies that the retry loop grows the buffer and decompresses correctly
+        let data = Data(repeating: 0x00, count: 100_000)
         let compressed = try zlib.compress(data)
         XCTAssertLessThan(compressed.count * 10, data.count,
-            "Expected compressed*10 < original to demonstrate buffer limitation")
+            "Expected compressed*10 < original to exercise buffer growth")
         let decompressed = try zlib.decompress(compressed)
-        // Decompressed is truncated to buffer size
-        XCTAssertLessThan(decompressed.count, data.count)
+        XCTAssertEqual(decompressed, data, "Decompression should recover all data via buffer growth")
     }
 
     // MARK: - Determinism
