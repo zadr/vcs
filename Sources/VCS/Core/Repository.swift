@@ -294,4 +294,95 @@ public class Repository {
     public var registry: CompressionRegistry {
         return compressionRegistry
     }
+
+    /// Computes a diff between two commits.
+    /// Returns a `DiffResult` with per-file diffs for text files and binary size info for non-text files.
+    public func diff(from fromHash: Hash, to toHash: Hash, ignoreWhitespace: Bool = false) throws -> DiffResult {
+        let fromCommit = try objectStore.readCommit(fromHash)
+        let toCommit = try objectStore.readCommit(toHash)
+
+        guard let fromTreeHash = Hash(hex: fromCommit.tree),
+              let toTreeHash = Hash(hex: toCommit.tree) else {
+            return DiffResult(files: [])
+        }
+
+        let fromFiles = try flattenTree(fromTreeHash, prefix: "")
+        let toFiles = try flattenTree(toTreeHash, prefix: "")
+
+        let allPaths = Set(fromFiles.keys).union(Set(toFiles.keys)).sorted()
+
+        var fileDiffs: [(path: String, diff: FileDiff)] = []
+
+        for path in allPaths {
+            let oldHash = fromFiles[path]
+            let newHash = toFiles[path]
+
+            if let oldHash = oldHash, let newHash = newHash {
+                // File exists in both commits
+                if oldHash == newHash {
+                    continue // No change
+                }
+                let oldBlob = try objectStore.readBlob(oldHash)
+                let newBlob = try objectStore.readBlob(newHash)
+
+                if let oldText = String(data: oldBlob.content, encoding: .utf8),
+                   let newText = String(data: newBlob.content, encoding: .utf8) {
+                    let lines = computeLineDiff(old: oldText, new: newText, ignoreWhitespace: ignoreWhitespace)
+                    let hasChanges = lines.contains { line in
+                        if case .context = line { return false }
+                        return true
+                    }
+                    if hasChanges {
+                        fileDiffs.append((path: path, diff: .modified(lines)))
+                    }
+                } else {
+                    fileDiffs.append((path: path, diff: .binary(oldSize: oldBlob.content.count, newSize: newBlob.content.count)))
+                }
+            } else if let newHash = newHash {
+                // File added
+                let newBlob = try objectStore.readBlob(newHash)
+                if let newText = String(data: newBlob.content, encoding: .utf8) {
+                    let lines = newText.split(separator: "\n", omittingEmptySubsequences: false)
+                        .map { DiffLine.added(String($0)) }
+                    fileDiffs.append((path: path, diff: .added(lines)))
+                } else {
+                    fileDiffs.append((path: path, diff: .binary(oldSize: 0, newSize: newBlob.content.count)))
+                }
+            } else if let oldHash = oldHash {
+                // File removed
+                let oldBlob = try objectStore.readBlob(oldHash)
+                if let oldText = String(data: oldBlob.content, encoding: .utf8) {
+                    let lines = oldText.split(separator: "\n", omittingEmptySubsequences: false)
+                        .map { DiffLine.removed(String($0)) }
+                    fileDiffs.append((path: path, diff: .removed(lines)))
+                } else {
+                    fileDiffs.append((path: path, diff: .binary(oldSize: oldBlob.content.count, newSize: 0)))
+                }
+            }
+        }
+
+        return DiffResult(files: fileDiffs)
+    }
+
+    /// Recursively flattens a tree into a dictionary mapping relative file paths to blob hashes.
+    private func flattenTree(_ treeHash: Hash, prefix: String) throws -> [String: Hash] {
+        let tree = try objectStore.readTree(treeHash)
+        var result: [String: Hash] = [:]
+
+        for entry in tree.entries {
+            let path = prefix.isEmpty ? entry.name : "\(prefix)/\(entry.name)"
+            guard let entryHash = Hash(hex: entry.hash) else { continue }
+
+            if entry.isDirectory {
+                let subtree = try flattenTree(entryHash, prefix: path)
+                for (subPath, subHash) in subtree {
+                    result[subPath] = subHash
+                }
+            } else {
+                result[path] = entryHash
+            }
+        }
+
+        return result
+    }
 }
