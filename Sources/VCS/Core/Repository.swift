@@ -295,6 +295,35 @@ public class Repository {
         return compressionRegistry
     }
 
+    /// Returns the current HEAD commit hash, or nil if no commits exist.
+    public func headHash() -> Hash? {
+        try? getCurrentCommit()
+    }
+
+    /// Returns all files and their contents at the given commit hash.
+    public func allFiles(at commitHash: Hash) throws -> [String: Data] {
+        let commit = try objectStore.readCommit(commitHash)
+        guard let treeHash = Hash(hex: commit.tree) else { return [:] }
+        return try collectBlobContents(from: treeHash, prefix: "")
+    }
+
+    private func collectBlobContents(from treeHash: Hash, prefix: String) throws -> [String: Data] {
+        let tree = try objectStore.readTree(treeHash)
+        var result: [String: Data] = [:]
+        for entry in tree.entries {
+            guard let hash = Hash(hex: entry.hash) else { continue }
+            let path = prefix.isEmpty ? entry.name : "\(prefix)/\(entry.name)"
+            if entry.isDirectory {
+                let subFiles = try collectBlobContents(from: hash, prefix: path)
+                result.merge(subFiles) { _, new in new }
+            } else {
+                let blob = try objectStore.readBlob(hash)
+                result[path] = blob.content
+            }
+        }
+        return result
+    }
+
     /// Computes a diff between two commits.
     /// Returns a `DiffResult` with per-file diffs for text files and binary size info for non-text files.
     public func diff(from fromHash: Hash, to toHash: Hash, ignoreWhitespace: Bool = false) throws -> DiffResult {
