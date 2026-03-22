@@ -395,6 +395,230 @@ final class DiffLineTests: XCTestCase {
     }
 }
 
+// MARK: - Line Hashing Optimization Tests
+
+final class DiffLineHashingTests: XCTestCase {
+
+    // MARK: - Basic Modifications With Hashing
+
+    func testHashingProducesCorrectDiffForSimpleModification() {
+        let old = "func hello() {\n    print(\"hello\")\n}"
+        let new = "func hello() {\n    print(\"goodbye\")\n}"
+        let result = computeLineDiff(old: old, new: new)
+        XCTAssertEqual(result, [
+            .context("func hello() {"),
+            .removed("    print(\"hello\")"),
+            .added("    print(\"goodbye\")"),
+            .context("}"),
+        ])
+    }
+
+    func testHashingProducesCorrectDiffForInsertionAndDeletion() {
+        let old = "a\nb\nc\nd\ne"
+        let new = "a\nc\nd\nf\ne"
+        let result = computeLineDiff(old: old, new: new)
+        XCTAssertEqual(result, [
+            .context("a"),
+            .removed("b"),
+            .context("c"),
+            .context("d"),
+            .added("f"),
+            .context("e"),
+        ])
+    }
+
+    // MARK: - Whitespace-Ignored Diff With Hashing
+
+    func testHashingWithIgnoreWhitespaceMultipleSpaces() {
+        let old = "int   x   =   1;\nreturn x;"
+        let new = "int x = 1;\nreturn x;"
+        let result = computeLineDiff(old: old, new: new, ignoreWhitespace: true)
+        XCTAssertEqual(result, [
+            .context("int   x   =   1;"),
+            .context("return x;"),
+        ])
+    }
+
+    func testHashingWithIgnoreWhitespaceTabsVsSpaces() {
+        let old = "  indented\nnormal"
+        let new = "indented\nnormal"
+        let result = computeLineDiff(old: old, new: new, ignoreWhitespace: true)
+        XCTAssertEqual(result, [
+            .context("  indented"),
+            .context("normal"),
+        ])
+    }
+
+    func testHashingWithIgnoreWhitespaceRealChangesStillDetected() {
+        let old = "  alpha  \n  beta  \n  gamma  "
+        let new = "alpha\n  BETA  \ngamma"
+        let result = computeLineDiff(old: old, new: new, ignoreWhitespace: true)
+        // "alpha" matches (whitespace-normalized), "BETA" does not match "beta", "gamma" matches
+        XCTAssertTrue(result.contains(.context("  alpha  ")))
+        XCTAssertTrue(result.contains(.removed("  beta  ")))
+        XCTAssertTrue(result.contains(.added("  BETA  ")))
+        XCTAssertTrue(result.contains(.context("  gamma  ")))
+    }
+
+    // MARK: - Large Files With Few Changes
+
+    func testHashingLargeFileWithSingleChange() {
+        // Build a large file with 500 lines, change only one line in the middle
+        let oldLines = (0..<500).map { "line number \($0) with some content to make it longer" }
+        var newLines = oldLines
+        newLines[250] = "CHANGED line number 250 with different content"
+
+        let old = oldLines.joined(separator: "\n")
+        let new = newLines.joined(separator: "\n")
+
+        let result = computeLineDiff(old: old, new: new)
+
+        // Should have exactly 1 removal and 1 addition
+        let removals = result.filter { if case .removed = $0 { return true } else { return false } }
+        let additions = result.filter { if case .added = $0 { return true } else { return false } }
+        let contexts = result.filter { if case .context = $0 { return true } else { return false } }
+
+        XCTAssertEqual(removals.count, 1)
+        XCTAssertEqual(additions.count, 1)
+        XCTAssertEqual(contexts.count, 499) // All other lines are context
+        XCTAssertTrue(result.contains(.removed("line number 250 with some content to make it longer")))
+        XCTAssertTrue(result.contains(.added("CHANGED line number 250 with different content")))
+    }
+
+    func testHashingLargeFileWithNoChanges() {
+        let lines = (0..<1000).map { "line \($0)" }
+        let text = lines.joined(separator: "\n")
+
+        let result = computeLineDiff(old: text, new: text)
+
+        // All lines should be context
+        let contexts = result.filter { if case .context = $0 { return true } else { return false } }
+        XCTAssertEqual(contexts.count, 1000)
+        XCTAssertEqual(result.count, 1000)
+    }
+
+    func testHashingLargeFileWithChangesAtBothEnds() {
+        let oldLines = (0..<200).map { "line \($0)" }
+        var newLines = oldLines
+        newLines[0] = "FIRST LINE CHANGED"
+        newLines[199] = "LAST LINE CHANGED"
+
+        let old = oldLines.joined(separator: "\n")
+        let new = newLines.joined(separator: "\n")
+
+        let result = computeLineDiff(old: old, new: new)
+
+        let removals = result.filter { if case .removed = $0 { return true } else { return false } }
+        let additions = result.filter { if case .added = $0 { return true } else { return false } }
+
+        XCTAssertEqual(removals.count, 2)
+        XCTAssertEqual(additions.count, 2)
+        XCTAssertTrue(result.contains(.removed("line 0")))
+        XCTAssertTrue(result.contains(.added("FIRST LINE CHANGED")))
+        XCTAssertTrue(result.contains(.removed("line 199")))
+        XCTAssertTrue(result.contains(.added("LAST LINE CHANGED")))
+    }
+
+    // MARK: - Many Similar Lines (Hash Collision Resistance)
+
+    func testHashingWithManyDuplicateLines() {
+        // Many identical lines — hashes will be the same but that is correct behavior
+        let old = Array(repeating: "duplicate", count: 10).joined(separator: "\n")
+        let new = Array(repeating: "duplicate", count: 10).joined(separator: "\n")
+
+        let result = computeLineDiff(old: old, new: new)
+
+        let contexts = result.filter { if case .context = $0 { return true } else { return false } }
+        XCTAssertEqual(contexts.count, 10)
+    }
+
+    func testHashingWithSimilarButDistinctLines() {
+        // Lines that are very similar but differ by one character —
+        // tests that the string fallback catches any hash collision
+        let old = "aaa\naab\naac\naad\naae\naaf\naag\naah\naai\naaj"
+        let new = "aaa\naab\nAAC\naad\naae\naaf\nAAG\naah\naai\naaj"
+
+        let result = computeLineDiff(old: old, new: new)
+
+        XCTAssertEqual(result, [
+            .context("aaa"),
+            .context("aab"),
+            .removed("aac"),
+            .added("AAC"),
+            .context("aad"),
+            .context("aae"),
+            .context("aaf"),
+            .removed("aag"),
+            .added("AAG"),
+            .context("aah"),
+            .context("aai"),
+            .context("aaj"),
+        ])
+    }
+
+    func testHashingWithSingleCharacterVariations() {
+        // Single character lines that vary minimally
+        let old = "a\nb\nc\nd\ne\nf\ng\nh"
+        let new = "a\nB\nc\nD\ne\nF\ng\nH"
+
+        let result = computeLineDiff(old: old, new: new)
+
+        XCTAssertEqual(result, [
+            .context("a"),
+            .removed("b"),
+            .added("B"),
+            .context("c"),
+            .removed("d"),
+            .added("D"),
+            .context("e"),
+            .removed("f"),
+            .added("F"),
+            .context("g"),
+            .removed("h"),
+            .added("H"),
+        ])
+    }
+
+    func testHashingDuplicateLinesWithOneChangedInMiddle() {
+        // All lines are the same except one changed in the middle
+        let oldLines = Array(repeating: "same line", count: 20)
+        var newLines = oldLines
+        newLines[10] = "different line"
+
+        let old = oldLines.joined(separator: "\n")
+        let new = newLines.joined(separator: "\n")
+
+        let result = computeLineDiff(old: old, new: new)
+
+        let removals = result.filter { if case .removed = $0 { return true } else { return false } }
+        let additions = result.filter { if case .added = $0 { return true } else { return false } }
+        let contexts = result.filter { if case .context = $0 { return true } else { return false } }
+
+        XCTAssertEqual(removals.count, 1)
+        XCTAssertEqual(additions.count, 1)
+        XCTAssertEqual(contexts.count, 19)
+        XCTAssertTrue(result.contains(.removed("same line")))
+        XCTAssertTrue(result.contains(.added("different line")))
+    }
+
+    func testHashingIgnoreWhitespaceLargeFile() {
+        // Large file where lines differ only in whitespace — all should be context
+        let oldLines = (0..<100).map { "  line  \($0)  " }
+        let newLines = (0..<100).map { "line \($0)" }
+
+        let old = oldLines.joined(separator: "\n")
+        let new = newLines.joined(separator: "\n")
+
+        let result = computeLineDiff(old: old, new: new, ignoreWhitespace: true)
+
+        let contexts = result.filter { if case .context = $0 { return true } else { return false } }
+        XCTAssertEqual(contexts.count, 100)
+        // Context lines should use the old text
+        XCTAssertTrue(result.contains(.context("  line  0  ")))
+        XCTAssertTrue(result.contains(.context("  line  99  ")))
+    }
+}
+
 // MARK: - Repository Diff Integration Tests
 
 final class RepositoryDiffTests: TempDirectoryTestCase {
