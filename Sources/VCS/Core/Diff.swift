@@ -20,12 +20,17 @@ public struct DiffResult {
     public let files: [(path: String, diff: FileDiff)]
 }
 
-/// Computes a line-based diff between two strings using LCS (Longest Common Subsequence) dynamic programming.
+/// Computes a line-based diff between two strings using Myers' O(ND) diff algorithm.
 /// When `ignoreWhitespace` is true, lines that differ only in whitespace are treated as equal.
 ///
-/// Lines are hashed upfront so that the DP loop performs O(1) integer comparisons
-/// instead of O(line-length) string comparisons. A full string comparison is used as
-/// a fallback when hashes match to guard against hash collisions.
+/// Myers' algorithm (Eugene Myers, 1986) finds the shortest edit script (SES) in O(ND) time,
+/// where N is the total length of both sequences and D is the number of differences.
+/// When D is small (files are similar), this runs in nearly O(N) time.
+///
+/// Lines are hashed upfront so that comparisons are O(1) integer operations,
+/// with a full string comparison fallback to guard against hash collisions.
+/// Common prefix and suffix lines are stripped before running the algorithm
+/// to further reduce the problem size.
 public func computeLineDiff(old: String, new: String, ignoreWhitespace: Bool = false) -> [DiffLine] {
     let oldLines = old.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
     let newLines = new.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
@@ -35,8 +40,7 @@ public func computeLineDiff(old: String, new: String, ignoreWhitespace: Bool = f
             .joined(separator: " ")
     }
 
-    // Pre-compute hashes for each line so comparisons in the DP loop are O(1).
-    // When ignoreWhitespace is true, hash the normalized form of the line.
+    // Pre-compute hashes for each line so comparisons are O(1).
     let oldHashes: [Int]
     let newHashes: [Int]
 
@@ -48,8 +52,7 @@ public func computeLineDiff(old: String, new: String, ignoreWhitespace: Bool = f
         newHashes = newLines.map { $0.hashValue }
     }
 
-    // Compare two lines by index: first by hash (O(1)), then by full string on hash match
-    // to handle potential collisions.
+    // Compare two lines by index: first by hash (O(1)), then by full string on hash match.
     let linesEqual: (Int, Int) -> Bool
     if ignoreWhitespace {
         linesEqual = { (i: Int, j: Int) -> Bool in
@@ -62,14 +65,14 @@ public func computeLineDiff(old: String, new: String, ignoreWhitespace: Bool = f
         }
     }
 
-    // Strip common prefix lines to reduce the problem size for the DP algorithm
+    // Strip common prefix lines to reduce the problem size
     var prefixLen = 0
     while prefixLen < oldLines.count && prefixLen < newLines.count
         && linesEqual(prefixLen, prefixLen) {
         prefixLen += 1
     }
 
-    // Strip common suffix lines (after the prefix) to further reduce the problem size
+    // Strip common suffix lines (after the prefix)
     var suffixLen = 0
     while suffixLen < (oldLines.count - prefixLen) && suffixLen < (newLines.count - prefixLen)
         && linesEqual(oldLines.count - 1 - suffixLen, newLines.count - 1 - suffixLen) {
@@ -95,51 +98,124 @@ public func computeLineDiff(old: String, new: String, ignoreWhitespace: Bool = f
         }
     }
 
-    // Compute LCS using dynamic programming on the middle section only
     let n = oldMiddle.count
     let m = newMiddle.count
+    let maxD = n + m
 
-    // Build LCS table
-    var dp = Array(repeating: Array(repeating: 0, count: m + 1), count: n + 1)
-    for i in 1...max(n, 1) {
-        guard i <= n else { break }
-        for j in 1...max(m, 1) {
-            guard j <= m else { break }
-            if middleLinesEqual(i - 1, j - 1) {
-                dp[i][j] = dp[i - 1][j - 1] + 1
-            } else {
-                dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])
-            }
-        }
-    }
-
-    // Backtrack to produce diff for the middle section
-    var middleResult: [DiffLine] = []
-    var i = n
-    var j = m
-
-    while i > 0 || j > 0 {
-        if i > 0 && j > 0 && middleLinesEqual(i - 1, j - 1) {
-            middleResult.append(.context(oldMiddle[i - 1]))
-            i -= 1
-            j -= 1
-        } else if j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j]) {
-            middleResult.append(.added(newMiddle[j - 1]))
-            j -= 1
-        } else if i > 0 {
-            middleResult.append(.removed(oldMiddle[i - 1]))
-            i -= 1
-        }
-    }
-
-    middleResult.reverse()
-
-    // Reconstruct full result: prefix context + middle diff + suffix context
+    // Build prefix context
     var result: [DiffLine] = []
     for k in 0..<prefixLen {
         result.append(.context(oldLines[k]))
     }
-    result.append(contentsOf: middleResult)
+
+    guard maxD > 0 else {
+        // Append suffix context and return
+        for k in 0..<suffixLen {
+            result.append(.context(oldLines[oldLines.count - suffixLen + k]))
+        }
+        return result
+    }
+
+    // Myers' diff: forward pass
+    // V[k] = furthest x on diagonal k (where k = x - y)
+    let vOffset = maxD
+    let vSize = 2 * maxD + 1
+    var v = Array(repeating: 0, count: vSize)
+
+    // Store a snapshot of V after each d iteration for backtracking
+    var trace: [[Int]] = []
+
+    var shortestD = 0
+    outer: for d in 0...maxD {
+        trace.append(v)
+
+        for k in stride(from: -d, through: d, by: 2) {
+            var x: Int
+            if k == -d || (k != d && v[k - 1 + vOffset] < v[k + 1 + vOffset]) {
+                x = v[k + 1 + vOffset]       // move down (insert)
+            } else {
+                x = v[k - 1 + vOffset] + 1   // move right (delete)
+            }
+            var y = x - k
+
+            // Follow diagonal (snake): matching lines
+            while x < n && y < m && middleLinesEqual(x, y) {
+                x += 1
+                y += 1
+            }
+
+            v[k + vOffset] = x
+
+            if x >= n && y >= m {
+                shortestD = d
+                break outer
+            }
+        }
+    }
+
+    // Backtrack to find the sequence of snakes.
+    var snakes: [(startX: Int, startY: Int, endX: Int, endY: Int)] = []
+    var bx = n
+    var by = m
+
+    for d in stride(from: shortestD, to: 0, by: -1) {
+        let vSnap = trace[d]
+        let k = bx - by
+
+        let prevK: Int
+        if k == -d || (k != d && vSnap[k - 1 + vOffset] < vSnap[k + 1 + vOffset]) {
+            prevK = k + 1   // came from diagonal k+1 (insert/down)
+        } else {
+            prevK = k - 1   // came from diagonal k-1 (delete/right)
+        }
+
+        let prevEndX = vSnap[prevK + vOffset]
+        let prevEndY = prevEndX - prevK
+
+        let snakeStartX: Int
+        let snakeStartY: Int
+        if prevK == k + 1 {
+            snakeStartX = prevEndX
+            snakeStartY = prevEndY + 1
+        } else {
+            snakeStartX = prevEndX + 1
+            snakeStartY = prevEndY
+        }
+
+        snakes.append((startX: snakeStartX, startY: snakeStartY, endX: bx, endY: by))
+
+        bx = prevEndX
+        by = prevEndY
+    }
+
+    // Add the d=0 snake
+    snakes.append((startX: 0, startY: 0, endX: bx, endY: by))
+    snakes.reverse()
+
+    // Emit edits and context from snakes
+    for (i, snake) in snakes.enumerated() {
+        if i > 0 {
+            let prevEnd = snakes[i - 1]
+            let dx = snake.startX - prevEnd.endX
+            let dy = snake.startY - prevEnd.endY
+
+            if dx == 1 && dy == 0 {
+                result.append(.removed(oldMiddle[prevEnd.endX]))
+            } else if dx == 0 && dy == 1 {
+                result.append(.added(newMiddle[prevEnd.endY]))
+            }
+        }
+
+        var sx = snake.startX
+        var sy = snake.startY
+        while sx < snake.endX && sy < snake.endY {
+            result.append(.context(oldMiddle[sx]))
+            sx += 1
+            sy += 1
+        }
+    }
+
+    // Append suffix context
     for k in 0..<suffixLen {
         result.append(.context(oldLines[oldLines.count - suffixLen + k]))
     }

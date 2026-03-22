@@ -619,6 +619,138 @@ final class DiffLineHashingTests: XCTestCase {
     }
 }
 
+// MARK: - Myers Algorithm Tests
+
+final class MyersAlgorithmTests: XCTestCase {
+
+    // MARK: - Large Files with Small Diffs (O(ND) behavior)
+
+    func testDiffLargeFileWithSmallChange() {
+        // 500 identical lines with one change in the middle — Myers should handle this efficiently
+        var oldLines: [String] = []
+        var newLines: [String] = []
+        for i in 0..<500 {
+            oldLines.append("line \(i)")
+            newLines.append("line \(i)")
+        }
+        oldLines[250] = "old line 250"
+        newLines[250] = "new line 250"
+
+        let old = oldLines.joined(separator: "\n")
+        let new = newLines.joined(separator: "\n")
+
+        let result = computeLineDiff(old: old, new: new)
+
+        // Should have 499 context lines, 1 removed, 1 added
+        let contextCount = result.filter { if case .context = $0 { return true } else { return false } }.count
+        let removals = result.filter { if case .removed = $0 { return true } else { return false } }
+        let additions = result.filter { if case .added = $0 { return true } else { return false } }
+
+        XCTAssertEqual(contextCount, 499)
+        XCTAssertEqual(removals.count, 1)
+        XCTAssertEqual(additions.count, 1)
+        XCTAssertTrue(result.contains(.removed("old line 250")))
+        XCTAssertTrue(result.contains(.added("new line 250")))
+    }
+
+    func testDiffSingleLineChangeInLargeFile() {
+        // 1000 lines, change only the last one
+        let oldLines: [String] = (0..<1000).map { "line \($0)" }
+        var newLines = oldLines
+        newLines[999] = "modified last line"
+
+        let result = computeLineDiff(old: oldLines.joined(separator: "\n"), new: newLines.joined(separator: "\n"))
+
+        let contextCount = result.filter { if case .context = $0 { return true } else { return false } }.count
+        XCTAssertEqual(contextCount, 999)
+        XCTAssertTrue(result.contains(.removed("line 999")))
+        XCTAssertTrue(result.contains(.added("modified last line")))
+    }
+
+    // MARK: - Completely Different Files (worst case)
+
+    func testDiffCompletelyDifferentLargeFiles() {
+        // Every line is different — worst case for Myers (D = n + m)
+        let oldLines = (0..<100).map { "old_\($0)" }
+        let newLines = (0..<100).map { "new_\($0)" }
+
+        let result = computeLineDiff(old: oldLines.joined(separator: "\n"), new: newLines.joined(separator: "\n"))
+
+        let removals = result.filter { if case .removed = $0 { return true } else { return false } }
+        let additions = result.filter { if case .added = $0 { return true } else { return false } }
+        let contextCount = result.filter { if case .context = $0 { return true } else { return false } }.count
+
+        // All lines should be removed and added, no context
+        XCTAssertEqual(removals.count, 100)
+        XCTAssertEqual(additions.count, 100)
+        XCTAssertEqual(contextCount, 0)
+    }
+
+    // MARK: - Adjacent Changes (consecutive inserts/deletes)
+
+    func testDiffAdjacentInserts() {
+        let old = "a\nd\ne"
+        let new = "a\nb\nc\nd\ne"
+        let result = computeLineDiff(old: old, new: new)
+        XCTAssertEqual(result, [
+            .context("a"),
+            .added("b"),
+            .added("c"),
+            .context("d"),
+            .context("e"),
+        ])
+    }
+
+    func testDiffAdjacentDeletes() {
+        let old = "a\nb\nc\nd\ne"
+        let new = "a\nd\ne"
+        let result = computeLineDiff(old: old, new: new)
+        XCTAssertEqual(result, [
+            .context("a"),
+            .removed("b"),
+            .removed("c"),
+            .context("d"),
+            .context("e"),
+        ])
+    }
+
+    func testDiffAdjacentMixedChanges() {
+        // Replace two consecutive lines
+        let old = "header\nold1\nold2\nfooter"
+        let new = "header\nnew1\nnew2\nfooter"
+        let result = computeLineDiff(old: old, new: new)
+
+        XCTAssertTrue(result.contains(.context("header")))
+        XCTAssertTrue(result.contains(.context("footer")))
+        XCTAssertTrue(result.contains(.removed("old1")))
+        XCTAssertTrue(result.contains(.removed("old2")))
+        XCTAssertTrue(result.contains(.added("new1")))
+        XCTAssertTrue(result.contains(.added("new2")))
+
+        // Total should be 2 context + 2 removed + 2 added = 6
+        XCTAssertEqual(result.count, 6)
+    }
+
+    func testDiffMultipleScatteredChanges() {
+        // Changes at the beginning, middle, and end
+        let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj"
+        let new = "A\nb\nc\nd\nE\nf\ng\nh\ni\nJ"
+        let result = computeLineDiff(old: old, new: new)
+
+        // Three pairs of remove/add scattered through context
+        XCTAssertTrue(result.contains(.removed("a")))
+        XCTAssertTrue(result.contains(.added("A")))
+        XCTAssertTrue(result.contains(.removed("e")))
+        XCTAssertTrue(result.contains(.added("E")))
+        XCTAssertTrue(result.contains(.removed("j")))
+        XCTAssertTrue(result.contains(.added("J")))
+
+        // 7 context lines (b, c, d, f, g, h, i)
+        let contextCount = result.filter { if case .context = $0 { return true } else { return false } }.count
+        XCTAssertEqual(contextCount, 7)
+    }
+}
+
 // MARK: - Repository Diff Integration Tests
 
 final class RepositoryDiffTests: TempDirectoryTestCase {
