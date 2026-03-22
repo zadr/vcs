@@ -161,6 +161,74 @@ final class DiffLineTests: XCTestCase {
         ])
     }
 
+    // MARK: - Tab and Mixed Whitespace Handling
+
+    func testDiffIgnoreWhitespaceTabsVsSpaces() {
+        let old = "hello\tworld"
+        let new = "hello world"
+        let result = computeLineDiff(old: old, new: new, ignoreWhitespace: true)
+        XCTAssertEqual(result, [.context("hello\tworld")])
+    }
+
+    func testDiffIgnoreWhitespaceMixedTabsAndSpaces() {
+        let old = "hello \t world"
+        let new = "hello world"
+        let result = computeLineDiff(old: old, new: new, ignoreWhitespace: true)
+        XCTAssertEqual(result, [.context("hello \t world")])
+    }
+
+    func testDiffIgnoreWhitespaceLeadingTabs() {
+        let old = "\t\tindented"
+        let new = "indented"
+        let result = computeLineDiff(old: old, new: new, ignoreWhitespace: true)
+        XCTAssertEqual(result, [.context("\t\tindented")])
+    }
+
+    func testDiffIgnoreWhitespaceTrailingTabs() {
+        let old = "line1\t\t"
+        let new = "line1"
+        let result = computeLineDiff(old: old, new: new, ignoreWhitespace: true)
+        XCTAssertEqual(result, [.context("line1\t\t")])
+    }
+
+    func testDiffIgnoreWhitespaceMultipleConsecutiveWhitespaceTypes() {
+        let old = "\t  foo \t bar  "
+        let new = "foo bar"
+        let result = computeLineDiff(old: old, new: new, ignoreWhitespace: true)
+        XCTAssertEqual(result, [.context("\t  foo \t bar  ")])
+    }
+
+    func testDiffWithoutIgnoreWhitespaceTabsVsSpacesShowsChanges() {
+        let old = "hello\tworld"
+        let new = "hello world"
+        let result = computeLineDiff(old: old, new: new, ignoreWhitespace: false)
+        XCTAssertEqual(result, [
+            .removed("hello\tworld"),
+            .added("hello world"),
+        ])
+    }
+
+    func testDiffWithoutIgnoreWhitespaceMixedWhitespaceShowsChanges() {
+        let old = "\t  foo \t bar  "
+        let new = "foo bar"
+        let result = computeLineDiff(old: old, new: new, ignoreWhitespace: false)
+        XCTAssertEqual(result, [
+            .removed("\t  foo \t bar  "),
+            .added("foo bar"),
+        ])
+    }
+
+    func testDiffIgnoreWhitespaceTabIndentVsSpaceIndent() {
+        let old = "\tif true {\n\t\treturn\n\t}"
+        let new = "    if true {\n        return\n    }"
+        let result = computeLineDiff(old: old, new: new, ignoreWhitespace: true)
+        XCTAssertEqual(result, [
+            .context("\tif true {"),
+            .context("\t\treturn"),
+            .context("\t}"),
+        ])
+    }
+
     // MARK: - Edge Cases
 
     func testDiffSingleLineChange() {
@@ -200,6 +268,130 @@ final class DiffLineTests: XCTestCase {
         // Reverse: remove "c", add "b"
         XCTAssertTrue(reverse.contains(.removed("c")))
         XCTAssertTrue(reverse.contains(.added("b")))
+    }
+
+    // MARK: - Common Prefix/Suffix Trimming
+
+    func testDiffChangeInMiddleWithLongPrefixAndSuffix() {
+        // Large common prefix and suffix with a single change in the middle
+        let old = "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10"
+        let new = "line1\nline2\nline3\nline4\nCHANGED\nline6\nline7\nline8\nline9\nline10"
+        let result = computeLineDiff(old: old, new: new)
+        XCTAssertEqual(result, [
+            .context("line1"),
+            .context("line2"),
+            .context("line3"),
+            .context("line4"),
+            .removed("line5"),
+            .added("CHANGED"),
+            .context("line6"),
+            .context("line7"),
+            .context("line8"),
+            .context("line9"),
+            .context("line10"),
+        ])
+    }
+
+    func testDiffLongCommonPrefixChangeAtEnd() {
+        // Long common prefix with a change only at the very end
+        let old = "a\nb\nc\nd\ne\nold_ending"
+        let new = "a\nb\nc\nd\ne\nnew_ending"
+        let result = computeLineDiff(old: old, new: new)
+        XCTAssertEqual(result, [
+            .context("a"),
+            .context("b"),
+            .context("c"),
+            .context("d"),
+            .context("e"),
+            .removed("old_ending"),
+            .added("new_ending"),
+        ])
+    }
+
+    func testDiffLongCommonSuffixChangeAtBeginning() {
+        // Change only at the beginning with a long common suffix
+        let old = "old_start\nb\nc\nd\ne\nf"
+        let new = "new_start\nb\nc\nd\ne\nf"
+        let result = computeLineDiff(old: old, new: new)
+        XCTAssertEqual(result, [
+            .removed("old_start"),
+            .added("new_start"),
+            .context("b"),
+            .context("c"),
+            .context("d"),
+            .context("e"),
+            .context("f"),
+        ])
+    }
+
+    func testDiffCompletelyDifferentNoPrefixOrSuffix() {
+        // No common prefix or suffix at all
+        let result = computeLineDiff(old: "alpha\nbeta\ngamma", new: "one\ntwo\nthree")
+        let removals = result.filter { if case .removed = $0 { return true } else { return false } }
+        let additions = result.filter { if case .added = $0 { return true } else { return false } }
+        let contexts = result.filter { if case .context = $0 { return true } else { return false } }
+        XCTAssertEqual(removals.count, 3)
+        XCTAssertEqual(additions.count, 3)
+        XCTAssertEqual(contexts.count, 0)
+    }
+
+    func testDiffCompletelyIdenticalAllContext() {
+        // Entirely identical files should produce all context lines
+        let text = "first\nsecond\nthird\nfourth\nfifth"
+        let result = computeLineDiff(old: text, new: text)
+        XCTAssertEqual(result, [
+            .context("first"),
+            .context("second"),
+            .context("third"),
+            .context("fourth"),
+            .context("fifth"),
+        ])
+        // No removals or additions
+        let nonContext = result.filter { if case .context = $0 { return false } else { return true } }
+        XCTAssertEqual(nonContext.count, 0)
+    }
+
+    func testDiffCommonPrefixAndSuffixWithInsertionInMiddle() {
+        // Common prefix and suffix with an insertion (not replacement) in the middle
+        let old = "header\na\nb\nfooter"
+        let new = "header\na\nINSERTED\nb\nfooter"
+        let result = computeLineDiff(old: old, new: new)
+        XCTAssertEqual(result, [
+            .context("header"),
+            .context("a"),
+            .added("INSERTED"),
+            .context("b"),
+            .context("footer"),
+        ])
+    }
+
+    func testDiffCommonPrefixAndSuffixWithDeletionInMiddle() {
+        // Common prefix and suffix with a deletion in the middle
+        let old = "header\na\nDELETED\nb\nfooter"
+        let new = "header\na\nb\nfooter"
+        let result = computeLineDiff(old: old, new: new)
+        XCTAssertEqual(result, [
+            .context("header"),
+            .context("a"),
+            .removed("DELETED"),
+            .context("b"),
+            .context("footer"),
+        ])
+    }
+
+    func testDiffPrefixSuffixTrimmingWithIgnoreWhitespace() {
+        // Prefix/suffix trimming should work correctly with ignoreWhitespace
+        let old = "  header\na\nold_middle\nb\n  footer"
+        let new = "header\na\nnew_middle\nb\nfooter"
+        let result = computeLineDiff(old: old, new: new, ignoreWhitespace: true)
+        XCTAssertEqual(result, [
+            .context("  header"),
+            .context("a"),
+            .removed("old_middle"),
+            .added("new_middle"),
+            .context("b"),
+            .context("  footer"),
+        ])
     }
 }
 
