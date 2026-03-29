@@ -33,6 +33,14 @@ public class Repository {
         loadIgnorePatterns()
     }
 
+    private init(rootPath: URL, vcsPath: URL, objectStore: ObjectStore, compressionRegistry: CompressionRegistry, ignorePatterns: [String]) {
+        self.rootPath = rootPath
+        self.vcsPath = vcsPath
+        self.objectStore = objectStore
+        self.compressionRegistry = compressionRegistry
+        self.ignorePatterns = ignorePatterns
+    }
+
     public static func initialize(at path: URL) throws -> Repository {
         let vcsPath = path.appendingPathComponent(".vcs")
         try FileManager.default.createDirectory(at: vcsPath, withIntermediateDirectories: true)
@@ -42,7 +50,9 @@ public class Repository {
         let headPath = vcsPath.appendingPathComponent("HEAD")
         try "ref: refs/heads/main\n".write(to: headPath, atomically: true, encoding: .utf8)
 
-        return try Repository(path: path)
+        let registry = CompressionRegistry()
+        let objectStore = ObjectStore(repositoryPath: path, compressionRegistry: registry)
+        return Repository(rootPath: path, vcsPath: vcsPath, objectStore: objectStore, compressionRegistry: registry, ignorePatterns: [".vcs"])
     }
 
     private func loadIgnorePatterns() {

@@ -7,8 +7,6 @@ public class ObjectStore {
     public init(repositoryPath: URL, compressionRegistry: CompressionRegistry) {
         self.objectsPath = repositoryPath.appendingPathComponent(".vcs/objects")
         self.compressionRegistry = compressionRegistry
-
-        try? FileManager.default.createDirectory(at: objectsPath, withIntermediateDirectories: true)
     }
 
     private func objectPath(for hash: Hash) -> URL {
