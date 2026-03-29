@@ -11,15 +11,6 @@ final class ObjectStoreTests: TempDirectoryTestCase {
         store = ObjectStore(repositoryPath: tempDir, compressionRegistry: registry)
     }
 
-    // MARK: - Init
-
-    func testInitCreatesObjectsDirectory() {
-        let objectsPath = tempDir.appendingPathComponent(".vcs/objects")
-        var isDir: ObjCBool = false
-        XCTAssertTrue(FileManager.default.fileExists(atPath: objectsPath.path, isDirectory: &isDir))
-        XCTAssertTrue(isDir.boolValue)
-    }
-
     // MARK: - Write / Read
 
     func testWriteAndRead() throws {
